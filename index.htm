@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>字詞小精靈 - 閱讀遊戲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans HK', sans-serif;
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+            touch-action: manipulation; /* Prevent double-tap zoom on mobile */
+        }
+
+        /* Mode 1 Flying Animations */
+        @keyframes floatCloud {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(20px, -30px) rotate(5deg); }
+            50% { transform: translate(-10px, -50px) rotate(-5deg); }
+            75% { transform: translate(-30px, -20px) rotate(3deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
+        }
+        .flying-char {
+            animation: floatCloud 10s infinite ease-in-out alternate;
+        }
+
+        /* Bingo Animations */
+        @keyframes pulseBingo {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+            50% { transform: scale(1.05); box-shadow: 0 0 20px 10px rgba(255, 215, 0, 0.4); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+        }
+        .bingo-win { animation: pulseBingo 1s infinite; border: 4px solid gold !important; z-index: 10; }
+
+        /* Card Flip Animations */
+        .perspective { perspective: 1000px; }
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+        .flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .flip-card-front {
+            background: linear-gradient(45deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            color: white;
+            border: 2px solid white;
+        }
+        .flip-card-back {
+            background-color: white;
+            transform: rotateY(180deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Rainbow gradients for Mode 3 backs */
+        .rainbow-bg { background: linear-gradient(124deg, #ff2400, #e81d1d, #e8b71d, #e3e81d, #1de840, #1ddde8, #2b1de8, #dd00f3, #dd00f3); background-size: 1800% 1800%; animation: rainbow 18s ease infinite; }
+        @keyframes rainbow { 
+            0%{background-position:0% 82%} 50%{background-position:100% 19%} 100%{background-position:0% 82%}
+        }
+
+        .hidden-view { display: none !important; }
+        .char-img-fallback { font-size: 3rem; font-weight: 900; color: #374151; }
+    </style>
+</head>
+<body class="flex flex-col h-screen text-gray-800 overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md shadow-sm p-3 md:p-4 flex justify-between items-center sticky top-0 z-50 shrink-0">
+        <button id="btn-back" class="hidden-view text-blue-500 font-bold text-base md:text-lg flex items-center bg-blue-50 px-3 py-1.5 md:px-4 md:py-2 rounded-full hover:bg-blue-100 transition">
+            <svg class="w-4 h-4 md:w-5 md:h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+            <span class="hidden md:inline">返回 (Back)</span><span class="md:hidden">返回</span>
+        </button>
+        <h1 class="text-xl md:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 text-center flex-1" id="game-title">
+            字詞小精靈
+        </h1>
+        <div class="w-20 md:w-24"></div> <!-- Spacer for centering -->
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 relative w-full h-full max-w-6xl mx-auto p-2 md:p-4 flex flex-col justify-center items-center overflow-y-auto overflow-x-hidden">
+
+        <!-- VIEW: List Selection -->
+        <div id="view-list-select" class="flex flex-col items-center justify-center space-y-4 md:space-y-6 w-full animate-fade-in my-auto">
+            <h2 class="text-2xl md:text-3xl font-bold mb-2 md:mb-4 text-center">請選擇詞語表 (Select Word List)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 w-full max-w-3xl px-4">
+                <button onclick="selectList('222-1')" class="bg-white hover:-translate-y-2 transform transition-all duration-300 rounded-3xl p-6 shadow-xl border-4 border-blue-200 group">
+                    <div class="text-5xl mb-4 group-hover:scale-110 transition-transform">🧼</div>
+                    <h3 class="text-2xl font-black text-blue-600">列表 222-1</h3>
+                    <p class="text-gray-500 mt-2">洗澡, 噪音...</p>
+                </button>
+                <button onclick="selectList('222-2')" class="bg-white hover:-translate-y-2 transform transition-all duration-300 rounded-3xl p-6 shadow-xl border-4 border-green-200 group">
+                    <div class="text-5xl mb-4 group-hover:scale-110 transition-transform">🌲</div>
+                    <h3 class="text-2xl font-black text-green-600">列表 222-2</h3>
+                    <p class="text-gray-500 mt-2">手帕, 柏樹...</p>
+                </button>
+                <button onclick="selectList('222-3')" class="bg-white hover:-translate-y-2 transform transition-all duration-300 rounded-3xl p-6 shadow-xl border-4 border-purple-200 group">
+                    <div class="text-5xl mb-4 group-hover:scale-110 transition-transform">✏️</div>
+                    <h3 class="text-2xl font-black text-purple-600">列表 222-3</h3>
+                    <p class="text-gray-500 mt-2">羣體, 長裙...</p>
+                </button>
+            </div>
+        </div>
+
+        <!-- VIEW: Mode Selection -->
+        <div id="view-mode-select" class="hidden-view flex flex-col items-center justify-center space-y-4 md:space-y-6 w-full my-auto px-4">
+            <h2 class="text-2xl md:text-3xl font-bold mb-2 md:mb-4 text-center">選擇遊戲模式 (Select Mode)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 w-full max-w-4xl">
+                <button onclick="startMode(1)" class="bg-white rounded-3xl p-6 shadow-lg hover:shadow-2xl transform hover:scale-105 transition-all flex items-center space-x-6 border-l-8 border-yellow-400">
+                    <div class="text-6xl bg-yellow-100 p-4 rounded-full">☁️</div>
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">1. 義形 (找字雲)</h3>
+                        <p class="text-gray-500 text-sm mt-1">看圖找字，點擊飄浮的正確中文字！</p>
+                    </div>
+                </button>
+                <button onclick="startMode(2)" class="bg-white rounded-3xl p-6 shadow-lg hover:shadow-2xl transform hover:scale-105 transition-all flex items-center space-x-6 border-l-8 border-green-400">
+                    <div class="text-6xl bg-green-100 p-4 rounded-full">🎯</div>
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">2. 音形 (Bingo)</h3>
+                        <p class="text-gray-500 text-sm mt-1">聽老師讀音，點擊文字。綠/紅雙人對戰！</p>
+                    </div>
+                </button>
+                <button onclick="startMode(3)" class="bg-white rounded-3xl p-6 shadow-lg hover:shadow-2xl transform hover:scale-105 transition-all flex items-center space-x-6 border-l-8 border-pink-400">
+                    <div class="text-6xl bg-pink-100 p-4 rounded-full">🃏</div>
+                    <div class="text-left">
+                        <h3 class="text-2xl font-bold text-gray-800">3. 形音 (彩虹翻牌)</h3>
+                        <p class="text-gray-500 text-sm mt-1">翻開彩虹卡牌，讀出文字！(小心搞怪表情)</p>
+                    </div>
+                </button>
+                <button onclick="startMode(4)" class="bg-white rounded-3xl p-6 shadow-lg hover:shadow-2xl transform hover:scale-105 transition-all flex items-center space-x-6 border-l-8 border-blue-400">
+                    <div class="text-6xl bg-blue-100 p-4 rounded-full">🧩</div>
+                    <div class="text-left">
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-800">4. 形形 (詞語排隊)</h3>
+                        <p class="text-gray-500 text-xs md:text-sm mt-1">判斷詞語順序，排錯了就把它們拖曳排好！</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <!-- VIEW: Mode 1 (Cloud) -->
+        <div id="view-mode-1" class="hidden-view w-full flex-1 min-h-0 relative overflow-hidden bg-blue-50/50 rounded-3xl border-4 border-blue-200 shadow-inner flex items-center justify-center">
+            <!-- Center Picture -->
+            <div id="m1-pic-container" class="z-10 bg-white p-2 md:p-4 rounded-3xl shadow-2xl transform scale-110 transition-transform">
+                <img id="m1-pic" src="" alt="Target" class="w-[25vmin] h-[25vmin] max-w-[200px] max-h-[200px] object-contain rounded-xl" />
+            </div>
+            <!-- Flying Characters Container -->
+            <div id="m1-chars" class="absolute inset-0 z-20 pointer-events-none"></div>
+            <!-- Success Overlay -->
+            <div id="m1-success" class="absolute inset-0 z-30 bg-green-500/90 hidden-view flex flex-col items-center justify-center text-white text-center p-4">
+                <div class="text-6xl md:text-8xl mb-4">🌟</div>
+                <h2 class="text-3xl md:text-5xl font-black tracking-widest leading-tight">好嘢！答啱咗！</h2>
+            </div>
+        </div>
+
+        <!-- VIEW: Mode 2 (Bingo) -->
+        <div id="view-mode-2" class="hidden-view flex flex-col items-center justify-center w-full flex-1 min-h-0">
+            <div class="mb-2 md:mb-4 flex space-x-2 md:space-x-8 text-base md:text-xl font-bold">
+                <button id="m2-p1-btn" onclick="setM2Player(1)" class="flex items-center p-1.5 md:p-2 rounded-xl ring-4 ring-green-400 bg-green-50 transition-all cursor-pointer">
+                    <div class="w-4 h-4 md:w-6 md:h-6 bg-green-400 rounded-full mr-1.5 md:mr-2 shadow"></div> P1 綠色
+                </button>
+                <button id="m2-p2-btn" onclick="setM2Player(2)" class="flex items-center p-1.5 md:p-2 rounded-xl border-2 border-transparent transition-all cursor-pointer hover:bg-gray-100">
+                    <div class="w-4 h-4 md:w-6 md:h-6 bg-red-400 rounded-full mr-1.5 md:mr-2 shadow"></div> P2 紅色
+                </button>
+            </div>
+            <div id="m2-grid" class="grid grid-cols-4 gap-1.5 md:gap-3 bg-white p-2 md:p-4 rounded-2xl md:rounded-3xl shadow-xl w-[90vmin] max-w-[600px] max-h-[85vmin] aspect-square mx-auto">
+                <!-- Grid generated by JS -->
+            </div>
+            <!-- Bingo Overlay -->
+            <div id="m2-bingo-overlay" class="fixed inset-0 z-50 bg-black/60 hidden-view flex items-center justify-center backdrop-blur-sm p-4">
+                <div class="bg-gradient-to-br from-yellow-300 to-yellow-500 p-8 md:p-12 rounded-3xl shadow-2xl text-center border-8 border-white animate-bounce max-w-full">
+                    <h1 class="text-5xl md:text-7xl font-black text-red-600 mb-2 md:mb-4 drop-shadow-lg">BINGO!</h1>
+                    <p class="text-xl md:text-2xl text-white font-bold drop-shadow">恭喜你連成一線！</p>
+                    <button onclick="startMode(2)" class="mt-6 md:mt-8 bg-white text-yellow-600 font-bold text-lg md:text-xl px-6 py-3 md:px-8 md:py-4 rounded-full shadow-lg hover:scale-105 transition-transform">再玩一次</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: Mode 3 (Flip Cards) -->
+        <div id="view-mode-3" class="hidden-view w-full h-full flex flex-col items-center justify-center max-w-5xl mx-auto flex-1 min-h-0 p-2">
+            <div id="m3-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3 w-full perspective auto-rows-[minmax(0,1fr)] h-full max-h-[85vh]">
+                <!-- Cards generated by JS -->
+            </div>
+        </div>
+
+        <!-- VIEW: Mode 4 (Word Order) -->
+        <div id="view-mode-4" class="hidden-view flex flex-col items-center justify-center w-full flex-1 min-h-0">
+            <div class="text-xl md:text-2xl font-bold text-gray-500 mb-4 md:mb-8" id="m4-round-indicator">回合: 1 / 8</div>
+            
+            <!-- Cards Container for Drag & Drop -->
+            <div id="m4-word-container" class="flex space-x-2 md:space-x-8 mb-8 md:mb-12">
+                <!-- Generated by JS -->
+            </div>
+
+            <!-- Controls -->
+            <div id="m4-controls" class="flex space-x-8 md:space-x-12">
+                <button id="m4-btn-wrong" class="w-[18vmin] h-[18vmin] max-w-[100px] max-h-[100px] bg-red-100 border-4 border-red-500 text-red-500 rounded-full text-4xl md:text-6xl flex items-center justify-center shadow-xl hover:bg-red-200 transition-colors transform hover:scale-105 active:scale-95">
+                    ✖
+                </button>
+                <button id="m4-btn-correct" class="w-[18vmin] h-[18vmin] max-w-[100px] max-h-[100px] bg-green-100 border-4 border-green-500 text-green-500 rounded-full text-4xl md:text-6xl flex items-center justify-center shadow-xl hover:bg-green-200 transition-colors transform hover:scale-105 active:scale-95">
+                    ✔
+                </button>
+            </div>
+
+            <div id="m4-feedback" class="mt-4 md:mt-8 text-lg md:text-2xl font-bold text-blue-600 h-8 md:h-10 transition-opacity opacity-0 text-center px-4">
+                請拖曳卡片排好正確順序！(Drag to fix the order)
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Global Sound Manager & App Logic -->
+    <script>
+        /* --- SOUND MANAGER (Web Audio API) --- */
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+        }
+
+        function playTone(freq, type, duration, vol=0.1) {
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const Sounds = {
+            correct: () => { initAudio(); playTone(600, 'sine', 0.1); setTimeout(()=>playTone(800, 'sine', 0.3), 100); },
+            wrong: () => { initAudio(); playTone(300, 'sawtooth', 0.3); setTimeout(()=>playTone(200, 'sawtooth', 0.4), 150); },
+            pop: () => { initAudio(); playTone(400, 'sine', 0.1, 0.05); },
+            bingo: () => { 
+                initAudio(); 
+                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                    setTimeout(() => playTone(f, 'square', 0.2, 0.1), i * 150);
+                });
+            }
+        };
+
+        // Initialize audio on first user interaction
+        document.body.addEventListener('click', initAudio, { once: true });
+        document.body.addEventListener('touchstart', initAudio, { once: true });
+
+        /* --- DATA & STATE --- */
+        const DATA = {
+            '222-1': { dir: '222-1', charDir: '222_1', words: ['洗澡', '噪音', '積分', '奇蹟', '蠟燭', '臘腸', '衫鈕', '扭打'] },
+            '222-2': { dir: '222-2', charDir: '222_2', words: ['手帕', '柏樹', '碟子', '間諜', '刀鋒', '山峯', '洋蔥', '聰明'] },
+            '222-3': { dir: '222-3', charDir: '222_3', words: ['羣體', '長裙', '撤退', '清澈', '鉛筆', '沿途', '提議', '難題'] }
+        };
+
+        let state = {
+            listId: null,
+            mode: null,
+            characters: [], // Array of 16 single characters
+            words: []       // Array of 8 words
+        };
+
+        /* --- UTILS --- */
+        const showView = (id) => {
+            ['view-list-select', 'view-mode-select', 'view-mode-1', 'view-mode-2', 'view-mode-3', 'view-mode-4']
+                .forEach(v => document.getElementById(v).classList.add('hidden-view'));
+            document.getElementById(id).classList.remove('hidden-view');
+        };
+
+        const shuffle = (array) => {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        };
+
+        // Fallback for image errors to keep the game playable and beautiful
+        const replaceWithTextTile = (imgElement, charText) => {
+            imgElement.onerror = null;
+            const div = document.createElement('div');
+            div.className = 'w-full h-full flex items-center justify-center bg-white rounded-xl shadow-md border-2 border-gray-100 char-img-fallback';
+            div.innerText = charText;
+            imgElement.parentNode.replaceChild(div, imgElement);
+        };
+        const getFallbackImageUrl = (text) => `https://placehold.co/400x400/fff3cd/5c4b37?text=${encodeURIComponent(text)}`;
+
+        /* --- NAVIGATION --- */
+        const btnBack = document.getElementById('btn-back');
+        btnBack.addEventListener('click', () => {
+            if (state.mode !== null) {
+                state.mode = null;
+                showView('view-mode-select');
+                document.getElementById('game-title').innerText = '選擇模式';
+            } else {
+                state.listId = null;
+                showView('view-list-select');
+                btnBack.classList.add('hidden-view');
+                document.getElementById('game-title').innerText = '字詞小精靈';
+            }
+        });
+
+        function selectList(id) {
+            state.listId = id;
+            state.words = DATA[id].words;
+            state.characters = state.words.flatMap(w => w.split(''));
+            
+            showView('view-mode-select');
+            btnBack.classList.remove('hidden-view');
+            document.getElementById('game-title').innerText = `列表 ${id}`;
+            Sounds.pop();
+        }
+
+        function startMode(mode) {
+            state.mode = mode;
+            Sounds.pop();
+            const titles = ['', '1. 義形 (找字)', '2. 音形 (Bingo)', '3. 形音 (彩虹卡)', '4. 形形 (詞語排隊)'];
+            document.getElementById('game-title').innerText = titles[mode];
+            
+            switch(mode) {
+                case 1: initMode1(); break;
+                case 2: initMode2(); break;
+                case 3: initMode3(); break;
+                case 4: initMode4(); break;
+            }
+        }
+
+        /* --- MODE 1: 義形 (Flying Cloud) --- */
+        let m1AnimInterval;
+        function initMode1() {
+            showView('view-mode-1');
+            const container = document.getElementById('m1-chars');
+            container.innerHTML = '';
+            document.getElementById('m1-success').classList.add('hidden-view');
+
+            // Pick 1 random word
+            const targetWord = state.words[Math.floor(Math.random() * state.words.length)];
+            const targetChars = targetWord.split('');
+
+            // Setup Center Image
+            const imgEl = document.getElementById('m1-pic');
+            imgEl.src = `pics/${DATA[state.listId].dir}/${targetWord}.png`;
+            imgEl.onerror = () => { imgEl.src = getFallbackImageUrl(targetWord); };
+
+            // Generate flying characters
+            let charsToFly = [...targetChars]; // Ensure the correct characters are included
+            let wrongChars = state.characters.filter(c => !charsToFly.includes(c));
+            shuffle(wrongChars);
+            
+            // Add 4 random incorrect characters to make it 6 options in total
+            charsToFly = charsToFly.concat(wrongChars.slice(0, 4));
+            shuffle(charsToFly);
+
+            charsToFly.forEach((char, i) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'absolute flying-char pointer-events-auto cursor-pointer transition-transform hover:scale-110 active:scale-95';
+                
+                // Randomize positions outside the center area (roughly)
+                const isLeft = Math.random() > 0.5;
+                const isTop = Math.random() > 0.5;
+                wrapper.style.left = isLeft ? `${Math.random() * 30}%` : `${50 + Math.random() * 30}%`;
+                wrapper.style.top = isTop ? `${Math.random() * 30}%` : `${50 + Math.random() * 30}%`;
+                
+                // Randomize animation delays and durations for chaotic cloud effect
+                wrapper.style.animationDelay = `-${Math.random() * 5}s`;
+                wrapper.style.animationDuration = `${5 + Math.random() * 5}s`;
+
+                // Character image or fallback
+                const charImg = document.createElement('img');
+                charImg.src = `characters/${DATA[state.listId].charDir}/${char}.png`;
+                charImg.className = 'w-[20vmin] h-[20vmin] max-w-[150px] max-h-[150px] object-contain drop-shadow-2xl';
+                charImg.onerror = () => replaceWithTextTile(charImg, char);
+
+                wrapper.appendChild(charImg);
+
+                // Click Logic
+                wrapper.addEventListener('click', () => {
+                    if (targetChars.includes(char)) {
+                        // Correct!
+                        Sounds.correct();
+                        wrapper.style.transform = 'scale(2)';
+                        wrapper.style.opacity = '0';
+                        setTimeout(() => {
+                            document.getElementById('m1-success').classList.remove('hidden-view');
+                            // Auto restart after 2 seconds
+                            setTimeout(initMode1, 2500);
+                        }, 300);
+                    } else {
+                        // Wrong
+                        Sounds.wrong();
+                        wrapper.classList.add('bg-red-200', 'rounded-full');
+                        setTimeout(()=> wrapper.classList.remove('bg-red-200', 'rounded-full'), 500);
+                    }
+                });
+
+                container.appendChild(wrapper);
+            });
+        }
+
+        /* --- MODE 2: 音形 (Bingo) --- */
+        let m2GridData = [];
+        let m2CurrentPlayer = 1;
+
+        function setM2Player(player) {
+            m2CurrentPlayer = player;
+            const p1Btn = document.getElementById('m2-p1-btn');
+            const p2Btn = document.getElementById('m2-p2-btn');
+            
+            if(player === 1) {
+                p1Btn.className = 'flex items-center p-2 rounded-xl ring-4 ring-green-400 bg-green-50 transition-all cursor-pointer';
+                p2Btn.className = 'flex items-center p-2 rounded-xl border-2 border-transparent transition-all cursor-pointer hover:bg-gray-100';
+            } else {
+                p2Btn.className = 'flex items-center p-2 rounded-xl ring-4 ring-red-400 bg-red-50 transition-all cursor-pointer';
+                p1Btn.className = 'flex items-center p-2 rounded-xl border-2 border-transparent transition-all cursor-pointer hover:bg-gray-100';
+            }
+            if(audioCtx) Sounds.pop();
+        }
+
+        function initMode2() {
+            showView('view-mode-2');
+            document.getElementById('m2-bingo-overlay').classList.add('hidden-view');
+            setM2Player(1); // Reset to Player 1 on start
+            const gridEl = document.getElementById('m2-grid');
+            gridEl.innerHTML = '';
+
+            let shuffledChars = [...state.characters];
+            shuffle(shuffledChars);
+            m2GridData = new Array(16).fill(0); // 0: empty, 1: P1(Green), 2: P2(Red)
+
+            shuffledChars.forEach((char, index) => {
+                const cell = document.createElement('div');
+                cell.className = 'bg-gray-50 rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-sm flex items-center justify-center p-2 cursor-pointer transition-colors w-full h-full relative overflow-hidden group';
+                
+                const charImg = document.createElement('img');
+                charImg.src = `characters/${DATA[state.listId].charDir}/${char}.png`;
+                charImg.className = 'w-full h-full object-contain relative z-10';
+                charImg.onerror = () => replaceWithTextTile(charImg, char);
+
+                cell.appendChild(charImg);
+
+                // Click sets the cell to the currently selected player's color
+                cell.addEventListener('click', () => {
+                    Sounds.pop();
+                    
+                    // If the cell is already owned by the current player, clear it. Otherwise, claim it.
+                    if (m2GridData[index] === m2CurrentPlayer) {
+                        m2GridData[index] = 0;
+                    } else {
+                        m2GridData[index] = m2CurrentPlayer;
+                    }
+                    
+                    // Update visual
+                    cell.classList.remove('bg-gray-50', 'bg-green-300', 'bg-red-300');
+                    if(m2GridData[index] === 0) cell.classList.add('bg-gray-50');
+                    if(m2GridData[index] === 1) cell.classList.add('bg-green-300');
+                    if(m2GridData[index] === 2) cell.classList.add('bg-red-300');
+
+                    checkBingo();
+                });
+
+                gridEl.appendChild(cell);
+            });
+        }
+
+        function checkBingo() {
+            const lines = [
+                // Rows
+                [0,1,2,3], [4,5,6,7], [8,9,10,11], [12,13,14,15],
+                // Cols
+                [0,4,8,12], [1,5,9,13], [2,6,10,14], [3,7,11,15],
+                // Diags
+                [0,5,10,15], [3,6,9,12]
+            ];
+
+            let hasBingo = false;
+            const cells = document.getElementById('m2-grid').children;
+
+            // Reset previous highlights
+            for(let cell of cells) cell.classList.remove('bingo-win');
+
+            for (let line of lines) {
+                const [a, b, c, d] = line;
+                const vA = m2GridData[a];
+                if (vA !== 0 && vA === m2GridData[b] && vA === m2GridData[c] && vA === m2GridData[d]) {
+                    hasBingo = true;
+                    line.forEach(idx => cells[idx].classList.add('bingo-win'));
+                }
+            }
+
+            if (hasBingo) {
+                Sounds.bingo();
+                setTimeout(() => {
+                    document.getElementById('m2-bingo-overlay').classList.remove('hidden-view');
+                }, 500);
+            }
+        }
+
+
+        /* --- MODE 3: 形音 (Flip Cards) --- */
+        function initMode3() {
+            showView('view-mode-3');
+            const grid = document.getElementById('m3-grid');
+            grid.innerHTML = '';
+
+            let deck = [...state.characters, '🤪', '🤡'];
+            shuffle(deck);
+
+            deck.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'flip-card bg-transparent w-full aspect-[3/4] cursor-pointer group';
+                
+                const inner = document.createElement('div');
+                inner.className = 'flip-card-inner';
+
+                const front = document.createElement('div');
+                front.className = 'flip-card-front rainbow-bg text-4xl shadow-lg';
+                front.innerHTML = '✨';
+
+                const back = document.createElement('div');
+                back.className = 'flip-card-back p-2 shadow-lg border-2 border-gray-100 rounded-2xl overflow-hidden';
+                
+                if (item === '🤪' || item === '🤡') {
+                    back.innerHTML = `<span class="text-6xl">${item}</span>`;
+                } else {
+                    const charImg = document.createElement('img');
+                    charImg.src = `characters/${DATA[state.listId].charDir}/${item}.png`;
+                    charImg.className = 'w-full h-full object-contain';
+                    charImg.onerror = () => replaceWithTextTile(charImg, item);
+                    back.appendChild(charImg);
+                }
+
+                inner.appendChild(front);
+                inner.appendChild(back);
+                card.appendChild(inner);
+
+                card.addEventListener('click', () => {
+                    const isFlipped = card.classList.toggle('flipped');
+                    if(isFlipped) Sounds.pop();
+                });
+
+                grid.appendChild(card);
+            });
+        }
+
+
+        /* --- MODE 4: 形形 (Word Order) --- */
+        let m4CurrentRound = 0;
+        let m4Words = [];
+        let m4CurrentWord = "";
+        let m4SortableInstance = null;
+
+        function initMode4() {
+            showView('view-mode-4');
+            m4Words = [...state.words];
+            shuffle(m4Words);
+            m4CurrentRound = 0;
+            
+            // Reset feedback
+            const feedback = document.getElementById('m4-feedback');
+            feedback.style.opacity = '0';
+            
+            // Re-bind buttons to ensure no duplicate listeners
+            const btnRight = document.getElementById('m4-btn-correct');
+            const btnWrong = document.getElementById('m4-btn-wrong');
+            btnRight.replaceWith(btnRight.cloneNode(true));
+            btnWrong.replaceWith(btnWrong.cloneNode(true));
+            
+            document.getElementById('m4-btn-correct').addEventListener('click', () => m4HandleGuess(true));
+            document.getElementById('m4-btn-wrong').addEventListener('click', () => m4HandleGuess(false));
+
+            loadM4Round();
+        }
+
+        function loadM4Round() {
+            if (m4CurrentRound >= 8) {
+                // Game Over Mode 4
+                Sounds.bingo();
+                document.getElementById('m4-word-container').innerHTML = `<h2 class="text-4xl font-bold text-green-600">完成所有回合！</h2>`;
+                document.getElementById('m4-controls').classList.add('hidden-view');
+                document.getElementById('m4-round-indicator').innerText = '完成！';
+                return;
+            }
+
+            document.getElementById('m4-controls').classList.remove('hidden-view');
+            document.getElementById('m4-feedback').style.opacity = '0';
+            
+            m4CurrentWord = m4Words[m4CurrentRound];
+            document.getElementById('m4-round-indicator').innerText = `回合: ${m4CurrentRound + 1} / 8`;
+
+            let chars = m4CurrentWord.split('');
+            // 50% chance to shuffle order
+            const isShuffled = Math.random() > 0.5;
+            if (isShuffled) {
+                chars.reverse(); // Since it's 2 chars, reverse is sufficient
+            }
+
+            const container = document.getElementById('m4-word-container');
+            container.innerHTML = '';
+            // Destroy old sortable if exists
+            if (m4SortableInstance) {
+                m4SortableInstance.destroy();
+                m4SortableInstance = null;
+            }
+
+            chars.forEach(char => {
+                const tile = document.createElement('div');
+                tile.className = 'w-[30vmin] h-[30vmin] max-w-[180px] max-h-[180px] bg-white rounded-2xl md:rounded-3xl shadow-xl border-4 border-blue-200 flex items-center justify-center p-2 md:p-4 transition-transform';
+                tile.dataset.char = char; // Store char for validation
+
+                const charImg = document.createElement('img');
+                charImg.src = `characters/${DATA[state.listId].charDir}/${char}.png`;
+                charImg.className = 'w-full h-full object-contain pointer-events-none'; // Prevent drag issues
+                charImg.onerror = () => replaceWithTextTile(charImg, char);
+                
+                tile.appendChild(charImg);
+                container.appendChild(tile);
+            });
+        }
+
+        function getCurrentM4String() {
+            const container = document.getElementById('m4-word-container');
+            let str = '';
+            for (let child of container.children) {
+                str += child.dataset.char;
+            }
+            return str;
+        }
+
+        function m4HandleGuess(userGuessedCorrect) {
+            const currentStr = getCurrentM4String();
+            const isActuallyCorrect = currentStr === m4CurrentWord;
+            const feedback = document.getElementById('m4-feedback');
+
+            if (userGuessedCorrect) {
+                if (isActuallyCorrect) {
+                    // Right!
+                    Sounds.correct();
+                    m4CurrentRound++;
+                    setTimeout(loadM4Round, 1000);
+                    animateContainerSuccess();
+                } else {
+                    // Wrong guess (thought it was right, but it's wrong)
+                    Sounds.wrong();
+                    animateContainerShake();
+                }
+            } else {
+                // User pressed Cross (Wrong)
+                if (!isActuallyCorrect) {
+                    // Correct! It IS wrong. Now enable drag and drop.
+                    Sounds.correct();
+                    feedback.style.opacity = '1';
+                    document.getElementById('m4-controls').classList.add('hidden-view'); // Hide buttons
+                    enableM4Drag();
+                } else {
+                    // Wrong guess (thought it was wrong, but it's actually correct)
+                    Sounds.wrong();
+                    animateContainerShake();
+                }
+            }
+        }
+
+        function enableM4Drag() {
+            const container = document.getElementById('m4-word-container');
+            // Add visual cue for grabbable
+            for (let child of container.children) {
+                child.classList.add('cursor-move', 'hover:scale-105', 'border-blue-400', 'border-dashed');
+            }
+
+            m4SortableInstance = new Sortable(container, {
+                animation: 150,
+                ghostClass: 'opacity-50',
+                onEnd: function () {
+                    Sounds.pop();
+                    if (getCurrentM4String() === m4CurrentWord) {
+                        // User sorted it correctly!
+                        Sounds.correct();
+                        for (let child of container.children) {
+                            child.classList.remove('cursor-move', 'border-dashed', 'border-blue-400');
+                            child.classList.add('border-green-400', 'bg-green-50');
+                        }
+                        document.getElementById('m4-feedback').style.opacity = '0';
+                        m4SortableInstance.option("disabled", true); // disable further dragging
+                        m4CurrentRound++;
+                        setTimeout(loadM4Round, 1500);
+                    }
+                }
+            });
+        }
+
+        function animateContainerShake() {
+            const container = document.getElementById('m4-word-container');
+            container.animate([
+                { transform: 'translateX(0)' },
+                { transform: 'translateX(-10px)' },
+                { transform: 'translateX(10px)' },
+                { transform: 'translateX(-10px)' },
+                { transform: 'translateX(10px)' },
+                { transform: 'translateX(0)' }
+            ], { duration: 400, iterations: 1 });
+        }
+
+        function animateContainerSuccess() {
+            const container = document.getElementById('m4-word-container');
+            for(let child of container.children) {
+                child.classList.remove('border-blue-200');
+                child.classList.add('border-green-400', 'bg-green-50');
+            }
+        }
+
+    </script>
+</body>
+</html>
